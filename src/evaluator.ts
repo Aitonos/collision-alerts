@@ -36,9 +36,8 @@ export interface EvaluatorOptions {
    * Zones used instead of `zones` while own ship and the target are both
    * slower than `slowSpeed`, for a stopped target, and for every target while
    * own ship lies stopped at a berth. A target own ship
-   * overtakes slower than that, and a moving target while own ship is
-   * stopped, unless it is at 6 kn or faster and could come within these
-   * distances, are judged by `zones` cut to these distances.
+   * overtakes slower than that, and every moving target while own ship is
+   * stopped, are judged by `zones` cut to these distances.
    */
   slowZones: Zone[]
   /** CPA (m) inside which a target that does not cross ahead raises, by `zones`. */
@@ -81,12 +80,6 @@ const STATIONARY_SPEED = 0.26
 // threshold does not swap the zones, and with them the alarm, every update.
 const SLOW_RELEASE_MARGIN = 0.25
 
-// A target passes astern when, at closest approach, it lies more than 105°
-// off own ship's bow (cos 105° = -0.26), and counts as ahead again once
-// within 75°, so a target near abeam does not swap between the two.
-const ASTERN_ENTER = -0.26
-const ASTERN_LEAVE = 0.26
-
 // We come up on a boat from more than 22.5° abaft its beam (COLREG rule 13)
 // when its course points away from us within 67.5°.
 const ABAFT_BEAM = Math.cos((67.5 * Math.PI) / 180)
@@ -112,20 +105,14 @@ const OVERTAKEN_DATA_GAP = 60_000
 // turned since.
 const MAX_DEAD_RECKONING = 60_000
 
-// While own ship is stopped, unless at a berth, a boat under way slower than
-// this (m/s, 6 kn), harbour traffic, is judged by the cut zones. A faster one
-// keeps the normal zones: within their time window it is still far off, where
-// a degree or two of error in its reported course puts its closest approach
-// beyond the cut distances, and a ship heading straight for us would warn
-// minutes late.
-const HARBOUR_TRAFFIC_SPEED = (6 * 1852) / 3600
+// While own ship is stopped, a boat this fast (m/s, 6 kn) or faster is judged
+// by the closest approach an error in its course could bring it to: far off,
+// a degree or two moves a ship heading for us by more than the passing
+// distance, and it would warn minutes late.
+const FAST_TARGET_SPEED = (6 * 1852) / 3600
 
-// It keeps them only while an error this large in its course (sin 3°) could
-// bring it within the cut distances, though: its closest approach less the
-// distance it still has to run to it times this. A boat passing clear of them
-// by more, such as a ferry leaving its berth abeam of us, is judged by the
-// cut zones like harbour traffic. Reported courses differ from the track
-// between AIS reports by a median of about 1°.
+// That error (sin 3°). Reported courses differ from the track between AIS
+// reports by a median of about 1°.
 const COURSE_ERROR = Math.sin((3 * Math.PI) / 180)
 
 // A raised target pushed out of the most urgent by others is cleared. Below
@@ -227,23 +214,6 @@ function isSlow(sog: number, slowSpeed: number, wasSlow: boolean): boolean {
   return slowSpeed > 0 && sog < (wasSlow ? slowSpeed + SLOW_RELEASE_MARGIN : slowSpeed)
 }
 
-function passesAstern(own: Track, result: CpaResult, wasAstern: boolean): boolean {
-  if (own.sog === 0 || result.cpa === 0) {
-    return false
-  }
-  const cosOffBow = result.ahead / result.cpa
-  return cosOffBow < (wasAstern ? ASTERN_LEAVE : ASTERN_ENTER)
-}
-
-/** CPA distance of the most severe zone, metres. */
-function innermostCpa(zones: Zone[]): number {
-  const strictest = zones.reduce<Zone | undefined>(
-    (best, z) => (best === undefined || SEVERITY[z.level] > SEVERITY[best.level] ? z : best),
-    undefined
-  )
-  return strictest?.cpa ?? 0
-}
-
 /**
  * `zones` with each distance cut to the largest distance of the slow zones at
  * the same or a stricter level (the smallest when none is that strict).
@@ -288,7 +258,6 @@ export class Evaluator {
   private zoneSets = new Map<string, ReadonlySet<number>>()
   /** Time each overtaken target without a level has spent in a zone, net (ms), and when it was last judged. */
   private overtakenInZone = new Map<string, { net: number; at: number }>()
-  private asternTargets = new Set<string>()
   /** When each target began keeping its distance, ms since the epoch. */
   private keepingDistanceSince = new Map<string, number>()
   private readonly raised = new Set<string>()
@@ -301,8 +270,6 @@ export class Evaluator {
 
   /** The normal zones with the slow zones' distances. */
   private readonly cutZones: Zone[]
-  /** The largest distance (m) of the cut zones. */
-  private readonly cutReach: number
   /** The strictest slow zones, inside which an overtaken target raises at once. */
   private readonly overtakenAtOnceZones: Zone[]
   /**
@@ -316,7 +283,6 @@ export class Evaluator {
     private readonly sink: AlarmSink
   ) {
     this.cutZones = cutDistances(options.zones, options.slowZones)
-    this.cutReach = Math.max(...this.cutZones.map((z) => z.cpa))
     const strictest = Math.max(...options.slowZones.map((z) => SEVERITY[z.level]))
     this.overtakenAtOnceZones = options.slowZones.filter((z) => SEVERITY[z.level] === strictest)
     const speed = options.slowSpeed + SLOW_RELEASE_MARGIN
@@ -351,7 +317,6 @@ export class Evaluator {
     const overtakenTargets = new Map<string, number>()
     const zoneSets = new Map<string, ReadonlySet<number>>()
     const overtakenInZone = new Map<string, { net: number; at: number }>()
-    const asternTargets = new Set<string>()
     const keepingDistanceSince = new Map<string, number>()
     const candidates: Candidate[] = []
     const seen = new Set<string>()
@@ -429,40 +394,20 @@ export class Evaluator {
         overtakenTargets.set(targetId, nowMs)
       }
       // Lying at a berth or at anchor, we see boats come and go a few boat
-      // lengths off all the time, and the normal zones would alarm for each.
-      // While we are stopped, harbour traffic raises only for a closest
-      // approach as close as the slow zones demand, though as early as the
-      // normal zones would, so a boat heading straight for us still warns in
-      // good time.
-      const harbourTraffic = ownStopped && target.sog < HARBOUR_TRAFFIC_SPEED
-      const passesClear =
-        ownStopped &&
-        result.cpa - target.sog * Math.max(0, result.tcpa) * COURSE_ERROR > this.cutReach
+      // lengths off all the time. While we are stopped, a boat under way
+      // raises only within the passing distance of the slow zones, though as
+      // early as the normal zones would, so a boat heading straight for us
+      // still warns in good time.
       const current = this.levels.get(targetId)
       // Such a boat faster than slowSpeed, with nothing raised yet, leaves the
       // slow zones at once rather than after their release margin, so one
       // speeding up towards us warns as early as the normal zones would. A
       // raised level stays on its zones, as below.
-      const leftSlow =
-        harbourTraffic && current === undefined && target.sog >= this.options.slowSpeed
+      const leftSlow = ownStopped && current === undefined && target.sog >= this.options.slowSpeed
       const slow =
         berthed || (ownSlow && targetSlow && !leftSlow) || (stopped && this.options.slowSpeed > 0)
-      const judgedBy = slow
-        ? SLOW_SET
-        : overtaken || harbourTraffic || passesClear
-          ? CUT_SET
-          : NORMAL_SET
+      const judgedBy = slow ? SLOW_SET : overtaken || ownStopped ? CUT_SET : NORMAL_SET
       const zones = this.zonesOf(judgedBy)
-      // A target crossing behind us is no threat unless it comes really close,
-      // so it raises nothing while its CPA stays outside the innermost zone's
-      // distance. One that will come that close, such as a ship overtaking
-      // straight up our wake, keeps every zone and so its early warning, and
-      // a level already raised follows the normal hysteresis.
-      const astern = own !== null && passesAstern(own, result, this.asternTargets.has(targetId))
-      if (astern) {
-        asternTargets.add(targetId)
-      }
-      const passesWideAstern = astern && current === undefined && result.cpa > innermostCpa(zones)
       // Boats keeping their distance are at closest approach for as long as
       // they do, which would hold a level raised while one of them moved for
       // good. They count as having passed it when they began, so the level
@@ -483,11 +428,8 @@ export class Evaluator {
         !result.keepingDistance && target.sog > 0 && t < 0 && t > -carried ? 0 : t
       const judgedTcpa = judgedTime(tcpa)
       const crossing = result.bowCrossing
-      // While we are stopped, a boat at 6 kn or faster is judged by the closest
-      // approach an error in its course could bring it to: far off, a degree
-      // or two moves a ship heading for us by more than the passing distance.
       const cpa =
-        ownStopped && target.sog >= HARBOUR_TRAFFIC_SPEED
+        ownStopped && target.sog >= FAST_TARGET_SPEED
           ? Math.max(0, result.cpa - target.sog * Math.max(0, tcpa) * COURSE_ERROR)
           : result.cpa
       const judged: Passage = {
@@ -507,9 +449,7 @@ export class Evaluator {
       judgedSets.add(judgedBy)
       zoneSets.set(targetId, judgedSets)
       const judge = (passage: Passage) => {
-        let level = passesWideAstern
-          ? undefined
-          : assessPassage(zones, this.passingOf(judgedBy), passage, current)
+        let level = assessPassage(zones, this.passingOf(judgedBy), passage, current)
         for (const set of judgedSets) {
           if (set !== judgedBy) {
             const held = assessPassage(this.zonesOf(set), this.passingOf(set), passage, current)
@@ -571,7 +511,6 @@ export class Evaluator {
     this.overtakenTargets = overtakenTargets
     this.zoneSets = zoneSets
     this.overtakenInZone = overtakenInZone
-    this.asternTargets = asternTargets
     this.motion.retain(seen)
     this.drift.retain(seen)
     this.levels.clear()
@@ -636,7 +575,6 @@ export class Evaluator {
     this.zoneSets.clear()
     this.lastEvaluation = undefined
     this.overtakenInZone.clear()
-    this.asternTargets.clear()
     this.keepingDistanceSince.clear()
     this.raised.clear()
     this.displaced.clear()
