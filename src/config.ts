@@ -52,13 +52,13 @@ export const ConfigSchema = Type.Object({
   noAlarmsWhenMoored: Type.Boolean({
     title: 'No alarms while moored',
     description:
-      'While you are stopped and your navigation.state is moored, no boat raises an alarm, and those already raised are cleared. They come back as soon as you move or the state changes. signalk-autostate also reports moored at anchor while no anchor position is set, on a buoy, and while drifting slowly at sea.',
+      'Stopped and moored: no alarms, and raised ones clear. Takes precedence over Harbour limits while moored.',
     default: false
   }),
   noAlarmsWhenAnchored: Type.Boolean({
     title: 'No alarms while at anchor',
     description:
-      'While you are stopped and your navigation.state is anchored, no boat raises an alarm, and those already raised are cleared. They come back as soon as you move or the state changes. A boat dragging down on you raises nothing either: turn this on only if something else watches your anchorage.',
+      'Stopped and anchored: no alarms, and raised ones clear. A boat dragging onto you raises nothing either.',
     default: false
   }),
   maxAlarms: Type.Integer({
