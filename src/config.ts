@@ -49,6 +49,18 @@ export const ConfigSchema = Type.Object({
       'While you are stopped and your navigation.state is moored, every boat gets the Harbour limits, whatever its speed: in a marina boats slow and turn for their berths a few boat lengths off, and fast ones would otherwise raise by your chosen limits from a kilometre or more. A boat heading for you then warns only about 5 min and alarms 2 min before its closest approach. Turn this on only if moored on your boat means lying at a berth: signalk-autostate also reports moored at anchor while no anchor position is set, on a buoy, and while drifting slowly at sea. Has no effect while the Harbour-limits speed is 0.',
     default: false
   }),
+  noAlarmsWhenMoored: Type.Boolean({
+    title: 'No alarms while moored',
+    description:
+      'While you are stopped and your navigation.state is moored, no boat raises an alarm, and those already raised are cleared. They come back as soon as you move or the state changes. signalk-autostate also reports moored at anchor while no anchor position is set, on a buoy, and while drifting slowly at sea.',
+    default: false
+  }),
+  noAlarmsWhenAnchored: Type.Boolean({
+    title: 'No alarms while at anchor',
+    description:
+      'While you are stopped and your navigation.state is anchored, no boat raises an alarm, and those already raised are cleared. They come back as soon as you move or the state changes. A boat dragging down on you raises nothing either: turn this on only if something else watches your anchorage.',
+    default: false
+  }),
   maxAlarms: Type.Integer({
     title: 'Alarm for at most this many targets at once',
     description:
@@ -86,6 +98,8 @@ export const DEFAULTS: Config = {
   customPassingDistance: PASSING_DISTANCE.coastal,
   slowSpeed: 3,
   harbourLimitsWhenMoored: false,
+  noAlarmsWhenMoored: false,
+  noAlarmsWhenAnchored: false,
   maxAlarms: 3,
   maxRange: 12,
   maxAge: 360,

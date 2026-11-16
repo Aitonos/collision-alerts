@@ -181,7 +181,11 @@ describe('plugin at a berth', () => {
 
   // We lie still; a boat 1400 m north heads straight for us at 5 m/s: CPA 0
   // in 280 s, a Coastal alarm and a Harbour warning.
-  const raised = async (state: string, harbourLimitsWhenMoored = true) => {
+  const raised = async (
+    state: string,
+    harbourLimitsWhenMoored = true,
+    quiet: { noAlarmsWhenMoored?: boolean; noAlarmsWhenAnchored?: boolean } = {}
+  ) => {
     const { app, notifications } = fakeApp(true)
     vi.mocked(app.getSelfPath).mockImplementation((path: string) =>
       path === 'navigation.state' ? { value: state } : nav(50, 0, 0)
@@ -192,7 +196,7 @@ describe('plugin at a berth', () => {
         : undefined
     )
     const plugin = createPlugin(app)
-    plugin.start({ harbourLimitsWhenMoored }, () => undefined)
+    plugin.start({ harbourLimitsWhenMoored, ...quiet }, () => undefined)
     vi.advanceTimersByTime(2000)
     await plugin.stop()
     return notifications.raise
@@ -214,6 +218,20 @@ describe('plugin at a berth', () => {
     expect(await raised('anchored')).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ state: 'alarm' })
     )
+  })
+
+  it('raises nothing while moored when told so', async () => {
+    expect(await raised('moored', true, { noAlarmsWhenMoored: true })).not.toHaveBeenCalled()
+  })
+
+  it('raises nothing at anchor when told so', async () => {
+    expect(await raised('anchored', false, { noAlarmsWhenAnchored: true })).not.toHaveBeenCalled()
+  })
+
+  it('still alarms at anchor when only moored is quiet', async () => {
+    expect(
+      await raised('anchored', false, { noAlarmsWhenMoored: true })
+    ).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: 'alarm' }))
   })
 })
 

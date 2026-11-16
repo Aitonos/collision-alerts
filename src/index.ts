@@ -35,6 +35,8 @@ function createSink(app: ServerAPI): AlarmSink {
   }
 }
 
+const WATCHING = 'Watching AIS, radar and other targets'
+
 export default function (app: ServerAPI): Plugin {
   let timer: ReturnType<typeof setInterval> | undefined
   let evaluator: Evaluator | undefined
@@ -92,6 +94,15 @@ export default function (app: ServerAPI): Plugin {
       evaluator = activeEvaluator
       const ownMotion = new MotionCheck()
       const ownDrift = new DriftDetector()
+      const readsState =
+        config.harbourLimitsWhenMoored || config.noAlarmsWhenMoored || config.noAlarmsWhenAnchored
+      let status: string | undefined
+      const setStatus = (text: string) => {
+        if (text !== status) {
+          status = text
+          app.setPluginStatus(text)
+        }
+      }
 
       timer = setInterval(() => {
         // One bad target or data-model surprise must not stop the alarm loop.
@@ -112,11 +123,21 @@ export default function (app: ServerAPI): Plugin {
             now
           )
           // Set by a plugin such as signalk-autostate, or by hand.
-          const state = config.harbourLimitsWhenMoored
-            ? (app.getSelfPath('navigation.state') as { value?: unknown } | undefined)
+          const state = readsState
+            ? (app.getSelfPath('navigation.state') as { value?: unknown } | undefined)?.value
             : undefined
-          const moored = state?.value === 'moored'
-          const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored)
+          const moored = config.harbourLimitsWhenMoored && state === 'moored'
+          const quiet =
+            (config.noAlarmsWhenMoored && state === 'moored') ||
+            (config.noAlarmsWhenAnchored && state === 'anchored')
+          const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored, quiet)
+          setStatus(
+            quiet && own !== null && own.sog === 0
+              ? state === 'anchored'
+                ? 'No alarms while at anchor'
+                : 'No alarms while moored'
+              : WATCHING
+          )
           if (config.publishClosestApproach) {
             closestApproach.publish(evaluations, own, now)
           }
@@ -125,7 +146,7 @@ export default function (app: ServerAPI): Plugin {
         }
       }, config.interval * 1000)
       announce(true)
-      app.setPluginStatus('Watching AIS, radar and other targets')
+      setStatus(WATCHING)
     },
 
     stop() {

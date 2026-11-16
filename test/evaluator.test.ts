@@ -66,7 +66,8 @@ class TestEvaluator extends Evaluator {
     vessels: Record<string, TargetNode>,
     selfId: string,
     nowMs: number,
-    moored?: boolean
+    moored?: boolean,
+    quiet?: boolean
   ) {
     const dated = Object.entries(vessels).map(([id, node]) => [
       id,
@@ -77,7 +78,8 @@ class TestEvaluator extends Evaluator {
       Object.fromEntries(dated) as Record<string, TargetNode>,
       selfId,
       nowMs,
-      moored
+      moored,
+      quiet
     )
   }
 }
@@ -726,6 +728,28 @@ describe('Evaluator', () => {
       const { sink, ev } = setup()
       ev.evaluate(stopped, { [OTHER]: southbound(1800, 0, 4) }, SELF, NOW, true)
       expect(levels(sink)).toEqual(['warn'])
+    })
+
+    it('raises nothing while we lie still in a state the user wants quiet', () => {
+      const { sink, ev } = setup({ slowSpeed: 1.5 })
+      ev.evaluate(stopped, { [OTHER]: southbound(400, 0, 4) }, SELF, NOW, false, true)
+      expect(sink.calls).toEqual([])
+    })
+
+    it('clears what was raised once the state turns quiet', () => {
+      const { sink, ev } = setup({ slowSpeed: 1.5 })
+      ev.evaluate(stopped, { [OTHER]: southbound(400, 0, 4) }, SELF, NOW)
+      ev.evaluate(stopped, { [OTHER]: southbound(390, 0, 4) }, SELF, NOW + 2000, false, true)
+      expect(sink.calls).toEqual([
+        [OTHER, expect.objectContaining({ level: 'alarm' })],
+        [OTHER, undefined]
+      ])
+    })
+
+    it('keeps alarming in a quiet state while we are moving', () => {
+      const { sink, ev } = setup({ slowSpeed: 1.5 })
+      ev.evaluate(own, { [OTHER]: southbound(1800, 0, 4) }, SELF, NOW, false, true)
+      expect(levels(sink)).toEqual(['alarm'])
     })
 
     it('raises a warned boat that slows down no higher by the cut limits', () => {

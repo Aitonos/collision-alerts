@@ -299,13 +299,15 @@ export class Evaluator {
    * @param own own ship, or null when its own data is missing/stale
    * @param vessels AIS vessels and sensor targets, keyed by id
    * @param moored own ship lies moored at a berth
+   * @param quiet the user wants no alarms in own ship's current state
    */
   evaluate(
     own: Track | null,
     vessels: Record<string, TargetNode>,
     selfId: string,
     nowMs: number,
-    moored = false
+    moored = false,
+    quiet = false
   ): Evaluation[] {
     const evaluations: Evaluation[] = []
     const sinceLastEvaluation = nowMs - (this.lastEvaluation ?? nowMs)
@@ -319,6 +321,9 @@ export class Evaluator {
     // heading for us still warns 5 min and alarms 2 min before its closest
     // approach.
     const berthed = ownStopped && moored
+    // Only while we lie still: a state left stale by its source must not
+    // silence a boat under way. Nothing is raised, so what was raised clears.
+    const silenced = quiet && own !== null && own.sog === 0
     const slowTargets = new Set<string>()
     const overtakenTargets = new Map<string, number>()
     const zoneSets = new Map<string, ReadonlySet<number>>()
@@ -515,7 +520,7 @@ export class Evaluator {
           level = undefined
         }
       }
-      if (level) {
+      if (level && !silenced) {
         candidates.push({ targetId, node, level, result, tcpa, target })
       }
     }
