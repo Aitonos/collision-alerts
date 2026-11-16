@@ -31,6 +31,7 @@ function fakeApp(managed: boolean) {
     debug: vi.fn(),
     error: vi.fn(),
     setPluginStatus: vi.fn(),
+    savePluginOptions: vi.fn(),
     emitPropertyValue: vi.fn(),
     handleMessage: vi.fn<HandleMessage>(),
     getSelfPath: vi.fn(() => nav(50, 0, 5)),
@@ -181,11 +182,7 @@ describe('plugin at a berth', () => {
 
   // We lie still; a boat 1400 m north heads straight for us at 5 m/s: CPA 0
   // in 280 s, a Coastal alarm and a Harbour warning.
-  const raised = async (
-    state: string,
-    harbourLimitsWhenMoored = true,
-    quiet: { noAlarmsWhenMoored?: boolean; noAlarmsWhenAnchored?: boolean } = {}
-  ) => {
+  const raised = async (state: string, config: object = { whileMoored: 'harbour' }) => {
     const { app, notifications } = fakeApp(true)
     vi.mocked(app.getSelfPath).mockImplementation((path: string) =>
       path === 'navigation.state' ? { value: state } : nav(50, 0, 0)
@@ -196,7 +193,7 @@ describe('plugin at a berth', () => {
         : undefined
     )
     const plugin = createPlugin(app)
-    plugin.start({ harbourLimitsWhenMoored, ...quiet }, () => undefined)
+    plugin.start(config, () => undefined)
     vi.advanceTimersByTime(2000)
     await plugin.stop()
     return notifications.raise
@@ -209,8 +206,31 @@ describe('plugin at a berth', () => {
   })
 
   it('keeps the normal limits while moored unless told to read moored as a berth', async () => {
-    expect(await raised('moored', false)).toHaveBeenCalledExactlyOnceWith(
+    expect(await raised('moored', { whileMoored: 'normal' })).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ state: 'alarm' })
+    )
+  })
+
+  it('reads the old Harbour-limits switch and saves it as whileMoored', async () => {
+    const { app, notifications } = fakeApp(true)
+    vi.mocked(app.getSelfPath).mockImplementation((path: string) =>
+      path === 'navigation.state' ? { value: 'moored' } : nav(50, 0, 0)
+    )
+    vi.mocked(app.getPath).mockImplementation((path: string): unknown =>
+      path === 'vessels'
+        ? { [OTHER]: { navigation: nav(50 + 1400 / 1852 / 60, 180, 5) } }
+        : undefined
+    )
+    const plugin = createPlugin(app)
+    plugin.start({ maxRange: 2, harbourLimitsWhenMoored: true }, () => undefined)
+    vi.advanceTimersByTime(2000)
+    await plugin.stop()
+    expect(notifications.raise).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ state: 'warn' })
+    )
+    expect(app.savePluginOptions).toHaveBeenCalledExactlyOnceWith(
+      { maxRange: 2, whileMoored: 'harbour' },
+      expect.any(Function)
     )
   })
 
@@ -221,17 +241,17 @@ describe('plugin at a berth', () => {
   })
 
   it('raises nothing while moored when told so', async () => {
-    expect(await raised('moored', true, { noAlarmsWhenMoored: true })).not.toHaveBeenCalled()
+    expect(await raised('moored', { whileMoored: 'silent' })).not.toHaveBeenCalled()
   })
 
   it('raises nothing at anchor when told so', async () => {
-    expect(await raised('anchored', false, { noAlarmsWhenAnchored: true })).not.toHaveBeenCalled()
+    expect(await raised('anchored', { noAlarmsWhenAnchored: true })).not.toHaveBeenCalled()
   })
 
   it('still alarms at anchor when only moored is quiet', async () => {
-    expect(
-      await raised('anchored', false, { noAlarmsWhenMoored: true })
-    ).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: 'alarm' }))
+    expect(await raised('anchored', { whileMoored: 'silent' })).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ state: 'alarm' })
+    )
   })
 })
 

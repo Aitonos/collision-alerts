@@ -74,6 +74,19 @@ export default function (app: ServerAPI): Plugin {
     start(partial: object) {
       // The server does not apply schema defaults at runtime.
       const config: Config = { ...DEFAULTS, ...(partial as Partial<Config>) }
+      // Up to 0.8, a switch for what whileMoored: 'harbour' does now. Saved
+      // once in the new form, so the admin form shows it and keeps it.
+      const { harbourLimitsWhenMoored, ...current } = partial as Partial<Config> & {
+        harbourLimitsWhenMoored?: boolean
+      }
+      if (harbourLimitsWhenMoored !== undefined) {
+        if (current.whileMoored === undefined && harbourLimitsWhenMoored) {
+          config.whileMoored = 'harbour'
+        }
+        app.savePluginOptions({ ...current, whileMoored: config.whileMoored }, (err) => {
+          if (err) app.error(`Could not save the moored setting: ${err.message}`)
+        })
+      }
       const maxAge = config.maxAge
       const activeEvaluator = new Evaluator(
         {
@@ -94,8 +107,7 @@ export default function (app: ServerAPI): Plugin {
       evaluator = activeEvaluator
       const ownMotion = new MotionCheck()
       const ownDrift = new DriftDetector()
-      const readsState =
-        config.harbourLimitsWhenMoored || config.noAlarmsWhenMoored || config.noAlarmsWhenAnchored
+      const readsState = config.whileMoored !== 'normal' || config.noAlarmsWhenAnchored
       let status: string | undefined
       const setStatus = (text: string) => {
         if (text !== status) {
@@ -126,9 +138,9 @@ export default function (app: ServerAPI): Plugin {
           const state = readsState
             ? (app.getSelfPath('navigation.state') as { value?: unknown } | undefined)?.value
             : undefined
-          const moored = config.harbourLimitsWhenMoored && state === 'moored'
+          const moored = config.whileMoored === 'harbour' && state === 'moored'
           const quiet =
-            (config.noAlarmsWhenMoored && state === 'moored') ||
+            (config.whileMoored === 'silent' && state === 'moored') ||
             (config.noAlarmsWhenAnchored && state === 'anchored')
           const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored, quiet)
           setStatus(
