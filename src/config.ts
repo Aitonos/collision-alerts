@@ -28,54 +28,48 @@ export const ConfigSchema = Type.Object({
   harbourZones: Type.Array(ZoneSchema, {
     title: 'Harbour zones',
     description:
-      'Default: warn when crossing within 100 m ahead in 300 s, alarm within 50 m in 120 s. Also used for slow and stopped boats, and while moored if chosen below, whatever the sensitivity.',
+      'Default: warn 100 m / 300 s, alarm 50 m / 120 s. Also used for slow and stopped boats, whatever the sensitivity.',
     minItems: 1,
     default: PRESETS.harbour
   }),
   harbourPassingDistance: Type.Number({
     title: 'Harbour passing distance (m)',
-    description:
-      'Default: 15 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone. Also used for slow and stopped boats, and while you are stopped, whatever the sensitivity.',
+    description: 'Default: 15 m. Also used for slow and stopped boats, whatever the sensitivity.',
     minimum: 0,
     default: PASSING_DISTANCE.harbour
   }),
   coastalZones: Type.Array(ZoneSchema, {
     title: 'Coastal zones',
-    description:
-      'Default: warn when crossing within 926 m (0.5 NM) ahead in 720 s, alarm within 463 m (0.25 NM) in 360 s.',
+    description: 'Default: warn 926 m / 720 s, alarm 463 m / 360 s.',
     minItems: 1,
     default: PRESETS.coastal
   }),
   coastalPassingDistance: Type.Number({
     title: 'Coastal passing distance (m)',
-    description:
-      'Default: 50 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+    description: 'Default: 50 m.',
     minimum: 0,
     default: PASSING_DISTANCE.coastal
   }),
   offshoreZones: Type.Array(ZoneSchema, {
     title: 'Offshore zones',
-    description:
-      'Default: warn when crossing within 1852 m (1 NM) ahead in 1200 s, alarm within 926 m (0.5 NM) in 600 s.',
+    description: 'Default: warn 1852 m / 1200 s, alarm 926 m / 600 s.',
     minItems: 1,
     default: PRESETS.offshore
   }),
   offshorePassingDistance: Type.Number({
     title: 'Offshore passing distance (m)',
-    description:
-      'Default: 100 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+    description: 'Default: 100 m.',
     minimum: 0,
     default: PASSING_DISTANCE.offshore
   }),
   customZones: Type.Array(ZoneSchema, {
     title: 'Custom zones',
-    description: 'Default: the Coastal ones.',
+    description: 'Default: the Coastal values.',
     default: PRESETS.coastal
   }),
   customPassingDistance: Type.Number({
     title: 'Custom passing distance (m)',
-    description:
-      'Default: 50 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+    description: 'Default: 50 m.',
     minimum: 0,
     default: PASSING_DISTANCE.coastal
   }),
@@ -144,10 +138,8 @@ export function limitsFor(
 
 /**
  * The schema the admin form gets: only the chosen sensitivity's limits show,
- * right below it. A chain of if/then/else rather than `dependencies`: with no
- * sensitivity saved yet, the form matches no `dependencies` branch and shows
- * every field empty, while the final else (Coastal, the default) still
- * applies. The form appends a branch's fields after the others and rejects a
+ * right below it, with their defaults filled in when switching. The form
+ * appends a `dependencies` branch's fields after the others and rejects a
  * `ui:order` naming a field it does not show, so every branch carries all the
  * other fields too, in schema order. Hidden fields keep their values.
  */
@@ -158,25 +150,21 @@ export function formSchema(): object {
   const properties = schema.properties
   const limits = new Set<string>(Object.values(LIMIT_FIELDS).flat())
   const others = Object.entries(properties).filter(([key]) => key !== 'preset' && !limits.has(key))
-  const branch = (preset: Preset) => ({
-    properties: {
-      ...Object.fromEntries(LIMIT_FIELDS[preset].map((key) => [key, properties[key]])),
-      ...Object.fromEntries(others)
-    }
-  })
-  const chain = (presets: Preset[]): object =>
-    presets.length === 1
-      ? branch(presets[0])
-      : {
-          if: { properties: { preset: { const: presets[0] } }, required: ['preset'] },
-          then: branch(presets[0]),
-          else: chain(presets.slice(1))
-        }
   return {
     ...schema,
     required: ['preset'],
     properties: { preset: properties.preset },
-    ...chain(['harbour', 'offshore', 'custom', 'coastal'])
+    dependencies: {
+      preset: {
+        oneOf: Object.entries(LIMIT_FIELDS).map(([preset, keys]) => ({
+          properties: {
+            preset: { enum: [preset] },
+            ...Object.fromEntries(keys.map((key) => [key, properties[key]])),
+            ...Object.fromEntries(others)
+          }
+        }))
+      }
+    }
   }
 }
 

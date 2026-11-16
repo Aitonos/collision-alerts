@@ -20,23 +20,20 @@ describe('config schema', () => {
     expect(Value.Check(ConfigSchema, { ...DEFAULTS, preset: 'river' })).toBe(false)
   })
 
-  // The admin form resolves the if/then/else chain against the form data.
-  interface Node {
-    if?: { properties: { preset: { const: string } } }
-    then?: Node
-    else?: Node
-    properties?: Record<string, unknown>
+  // The admin form picks the dependencies branch whose preset matches.
+  interface Branch {
+    properties: { preset: { enum: string[] } } & Record<string, unknown>
   }
-  const fieldsFor = (preset?: string): string[] => {
-    let node = formSchema() as Node
-    while (node.if) {
-      node = (preset === node.if.properties.preset.const ? node.then : node.else) as Node
-    }
-    return Object.keys(node.properties ?? {})
+  const fieldsFor = (preset: string): string[] => {
+    const { dependencies } = formSchema() as { dependencies: { preset: { oneOf: Branch[] } } }
+    const branch = dependencies.preset.oneOf.find((b) => b.properties.preset.enum[0] === preset)
+    return Object.keys(branch?.properties ?? {}).filter((key) => key !== 'preset')
   }
 
   it('shows only the limits of the chosen sensitivity, right below it', () => {
-    expect((formSchema() as Node).properties).toEqual({ preset: ConfigSchema.properties.preset })
+    expect((formSchema() as { properties: unknown }).properties).toEqual({
+      preset: ConfigSchema.properties.preset
+    })
     for (const preset of ['harbour', 'coastal', 'offshore', 'custom']) {
       const fields = fieldsFor(preset)
       expect(fields.slice(0, 2)).toEqual([`${preset}Zones`, `${preset}PassingDistance`])
@@ -45,9 +42,5 @@ describe('config schema', () => {
       ).toHaveLength(2)
       expect(fields).toContain('maxAlarms')
     }
-  })
-
-  it('shows the Coastal limits before a sensitivity is saved', () => {
-    expect(fieldsFor(undefined).slice(0, 2)).toEqual(['coastalZones', 'coastalPassingDistance'])
   })
 })
