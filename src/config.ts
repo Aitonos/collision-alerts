@@ -1,5 +1,5 @@
 import { Type, type Static } from 'typebox'
-import { PASSING_DISTANCE, PRESETS } from './zones.js'
+import { PASSING_DISTANCE, PRESETS, type PresetName, type Zone } from './zones.js'
 
 const ZoneSchema = Type.Object({
   level: Type.Enum(['alert', 'warn', 'alarm', 'emergency'], {
@@ -25,14 +25,57 @@ export const ConfigSchema = Type.Object({
       'A boat raises when it will cross your course ahead of your bow within a distance, or come within a passing distance of you. Boats passing on either side, or crossing behind you, stay quiet. Harbour: warn when crossing within 100 m ahead in 5 min, alarm within 50 m in 2 min, passing distance 15 m. Coastal: 0.5 NM in 12 min, 0.25 NM in 6 min, 50 m. Offshore: 1 NM in 20 min, 0.5 NM in 10 min, 100 m.',
     default: 'coastal'
   }),
+  harbourZones: Type.Array(ZoneSchema, {
+    title: 'Harbour zones',
+    description:
+      'Default: warn when crossing within 100 m ahead in 300 s, alarm within 50 m in 120 s. Also used for slow and stopped boats, and while moored if chosen below, whatever the sensitivity.',
+    minItems: 1,
+    default: PRESETS.harbour
+  }),
+  harbourPassingDistance: Type.Number({
+    title: 'Harbour passing distance (m)',
+    description:
+      'Default: 15 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone. Also used for slow and stopped boats, and while you are stopped, whatever the sensitivity.',
+    minimum: 0,
+    default: PASSING_DISTANCE.harbour
+  }),
+  coastalZones: Type.Array(ZoneSchema, {
+    title: 'Coastal zones',
+    description:
+      'Default: warn when crossing within 926 m (0.5 NM) ahead in 720 s, alarm within 463 m (0.25 NM) in 360 s.',
+    minItems: 1,
+    default: PRESETS.coastal
+  }),
+  coastalPassingDistance: Type.Number({
+    title: 'Coastal passing distance (m)',
+    description:
+      'Default: 50 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+    minimum: 0,
+    default: PASSING_DISTANCE.coastal
+  }),
+  offshoreZones: Type.Array(ZoneSchema, {
+    title: 'Offshore zones',
+    description:
+      'Default: warn when crossing within 1852 m (1 NM) ahead in 1200 s, alarm within 926 m (0.5 NM) in 600 s.',
+    minItems: 1,
+    default: PRESETS.offshore
+  }),
+  offshorePassingDistance: Type.Number({
+    title: 'Offshore passing distance (m)',
+    description:
+      'Default: 100 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+    minimum: 0,
+    default: PASSING_DISTANCE.offshore
+  }),
   customZones: Type.Array(ZoneSchema, {
-    title: 'Custom zones (used when sensitivity is Custom)',
+    title: 'Custom zones',
+    description: 'Default: the Coastal ones.',
     default: PRESETS.coastal
   }),
   customPassingDistance: Type.Number({
-    title: 'Passing distance (m, used when sensitivity is Custom)',
+    title: 'Custom passing distance (m)',
     description:
-      'A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
+      'Default: 50 m. A boat that does not cross ahead of you raises only if it comes this close, within the time of a zone.',
     minimum: 0,
     default: PASSING_DISTANCE.coastal
   }),
@@ -78,10 +121,75 @@ export const ConfigSchema = Type.Object({
 
 export type Config = Static<typeof ConfigSchema>
 
+type Preset = Config['preset']
+
+const LIMIT_FIELDS: Record<Preset, [keyof Config, keyof Config]> = {
+  harbour: ['harbourZones', 'harbourPassingDistance'],
+  coastal: ['coastalZones', 'coastalPassingDistance'],
+  offshore: ['offshoreZones', 'offshorePassingDistance'],
+  custom: ['customZones', 'customPassingDistance']
+}
+
+/** The zones and passing distance of a sensitivity, as the user set them. */
+export function limitsFor(
+  config: Config,
+  preset: Preset | PresetName = config.preset
+): { zones: Zone[]; passingDistance: number } {
+  const [zones, passingDistance] = LIMIT_FIELDS[preset]
+  return {
+    zones: config[zones] as Zone[],
+    passingDistance: config[passingDistance] as number
+  }
+}
+
+/**
+ * The schema the admin form gets: only the chosen sensitivity's limits show,
+ * right below it. A chain of if/then/else rather than `dependencies`: with no
+ * sensitivity saved yet, the form matches no `dependencies` branch and shows
+ * every field empty, while the final else (Coastal, the default) still
+ * applies. The form appends a branch's fields after the others and rejects a
+ * `ui:order` naming a field it does not show, so every branch carries all the
+ * other fields too, in schema order. Hidden fields keep their values.
+ */
+export function formSchema(): object {
+  const schema = JSON.parse(JSON.stringify(ConfigSchema)) as {
+    properties: Record<string, unknown>
+  }
+  const properties = schema.properties
+  const limits = new Set<string>(Object.values(LIMIT_FIELDS).flat())
+  const others = Object.entries(properties).filter(([key]) => key !== 'preset' && !limits.has(key))
+  const branch = (preset: Preset) => ({
+    properties: {
+      ...Object.fromEntries(LIMIT_FIELDS[preset].map((key) => [key, properties[key]])),
+      ...Object.fromEntries(others)
+    }
+  })
+  const chain = (presets: Preset[]): object =>
+    presets.length === 1
+      ? branch(presets[0])
+      : {
+          if: { properties: { preset: { const: presets[0] } }, required: ['preset'] },
+          then: branch(presets[0]),
+          else: chain(presets.slice(1))
+        }
+  return {
+    ...schema,
+    required: ['preset'],
+    properties: { preset: properties.preset },
+    ...chain(['harbour', 'offshore', 'custom', 'coastal'])
+  }
+}
+
 // The server only uses schema defaults to seed the admin form; start()
 // receives `{}` for a plugin that has never been configured.
 export const DEFAULTS: Config = {
   preset: 'coastal',
+  harbourZones: PRESETS.harbour,
+  harbourPassingDistance: PASSING_DISTANCE.harbour,
+  coastalZones: PRESETS.coastal,
+  coastalPassingDistance: PASSING_DISTANCE.coastal,
+  offshoreZones: PRESETS.offshore,
+  offshorePassingDistance: PASSING_DISTANCE.offshore,
   customZones: PRESETS.coastal,
   customPassingDistance: PASSING_DISTANCE.coastal,
   slowSpeed: 3,

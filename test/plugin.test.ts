@@ -217,6 +217,56 @@ describe('plugin at a berth', () => {
   })
 })
 
+describe('plugin with edited limits', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  // The boat of the berth tests: CPA 0 in 280 s while we lie still.
+  const raised = async (config: object, state = 'moored') => {
+    const { app, notifications } = fakeApp(true)
+    vi.mocked(app.getSelfPath).mockImplementation((path: string) =>
+      path === 'navigation.state' ? { value: state } : nav(50, 0, 0)
+    )
+    vi.mocked(app.getPath).mockImplementation((path: string): unknown =>
+      path === 'vessels'
+        ? { [OTHER]: { navigation: nav(50 + 1400 / 1852 / 60, 180, 5) } }
+        : undefined
+    )
+    const plugin = createPlugin(app)
+    plugin.start(config, () => undefined)
+    vi.advanceTimersByTime(2000)
+    await plugin.stop()
+    return notifications.raise
+  }
+
+  it('judges by the edited zones of the chosen sensitivity', async () => {
+    const coastalZones = [
+      { level: 'warn', cpa: 926, tcpa: 720 },
+      { level: 'alarm', cpa: 463, tcpa: 200 }
+    ]
+    expect(await raised({ coastalZones })).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ state: 'warn' })
+    )
+  })
+
+  it('ignores the edited zones of another sensitivity', async () => {
+    const offshoreZones = [{ level: 'warn', cpa: 10, tcpa: 10 }]
+    expect(await raised({ offshoreZones })).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ state: 'alarm' })
+    )
+  })
+
+  it('uses the edited Harbour zones while moored, whatever the sensitivity', async () => {
+    const harbourZones = [
+      { level: 'warn', cpa: 100, tcpa: 200 },
+      { level: 'alarm', cpa: 50, tcpa: 120 }
+    ]
+    expect(
+      await raised({ preset: 'offshore', harbourZones, harbourLimitsWhenMoored: true })
+    ).not.toHaveBeenCalled()
+  })
+})
+
 describe('plugin with sensor targets', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())

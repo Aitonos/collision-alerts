@@ -25,6 +25,8 @@ Pick an **Alert sensitivity** in the plugin settings:
 
 A boat that does not cross ahead of you, or any boat while you are stopped, raises only if it will come within the passing distance, at the same times: a boat heading straight for you, or one overtaking up your wake.
 
+The table shows the defaults. Each sensitivity's zones and passing distance can be changed in the settings, which show only those of the chosen sensitivity, each with its defaults in its description. The Harbour ones you set are also used for slow and stopped boats, at your berth and at anchor, whatever the sensitivity: the 100 m, 50 m, 15 m, 5 min and 2 min below are their defaults.
+
 ## What to expect
 
 The plugin tries to alarm only when it matters:

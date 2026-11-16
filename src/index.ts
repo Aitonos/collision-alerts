@@ -4,8 +4,7 @@ import { DriftDetector } from './drift.js'
 import { MotionCheck } from './motion.js'
 import { ClosestApproachPublisher } from './closestApproach.js'
 import { Evaluator, positionTime, toTrack, type VesselNode } from './evaluator.js'
-import { ConfigSchema, DEFAULTS, type Config } from './config.js'
-import { PASSING_DISTANCE, PRESETS, type Zone } from './zones.js'
+import { DEFAULTS, formSchema, limitsFor, type Config } from './config.js'
 import { targetNodes, type SensorTargetNode } from './targets.js'
 
 const PLUGIN_ID = 'collision-alerts'
@@ -17,10 +16,6 @@ const KNOT = 1852 / 3600
 const COLLISION_ALERTS_PROPERTY = 'collisionAlerts'
 interface CollisionAlertsProperty {
   evaluatesTargets: boolean
-}
-
-function zonesFor(config: Config): Zone[] {
-  return config.preset === 'custom' ? config.customZones : PRESETS[config.preset]
 }
 
 function createSink(app: ServerAPI): AlarmSink {
@@ -67,21 +62,20 @@ export default function (app: ServerAPI): Plugin {
     id: PLUGIN_ID,
     name: 'Collision Alerts',
     description: 'CPA/TCPA collision alerts for AIS, radar and other targets',
-    schema: () => ConfigSchema,
+    schema: formSchema,
 
     start(partial: object) {
       // The server does not apply schema defaults at runtime.
       const config: Config = { ...DEFAULTS, ...(partial as Partial<Config>) }
       const maxAge = config.maxAge
+      const limits = limitsFor(config)
+      const harbour = limitsFor(config, 'harbour')
       const activeEvaluator = new Evaluator(
         {
-          zones: zonesFor(config),
-          slowZones: PRESETS.harbour,
-          passingDistance:
-            config.preset === 'custom'
-              ? config.customPassingDistance
-              : PASSING_DISTANCE[config.preset],
-          slowPassingDistance: PASSING_DISTANCE.harbour,
+          zones: limits.zones,
+          slowZones: harbour.zones,
+          passingDistance: limits.passingDistance,
+          slowPassingDistance: harbour.passingDistance,
           slowSpeed: config.slowSpeed * KNOT,
           maxAlarms: config.maxAlarms,
           maxRange: config.maxRange * NM,
