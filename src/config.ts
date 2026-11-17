@@ -56,6 +56,13 @@ export const ConfigSchema = Type.Object({
       'Stopped and anchored: no alarms, and raised ones clear. A boat dragging onto you raises nothing either.',
     default: false
   }),
+  silentRegions: Type.Array(Type.String(), {
+    title: 'No alarms inside these regions',
+    description:
+      'Regions drawn in a chart plotter such as Freeboard, for your harbours. While your boat is inside one, no alarms, and raised ones clear.',
+    uniqueItems: true,
+    default: []
+  }),
   maxAlarms: Type.Integer({
     title: 'Alarm for at most this many targets at once',
     description:
@@ -94,6 +101,7 @@ export const DEFAULTS: Config = {
   slowSpeed: 3,
   whileMoored: 'normal',
   noAlarmsWhenAnchored: false,
+  silentRegions: [],
   maxAlarms: 3,
   maxRange: 12,
   maxAge: 360,

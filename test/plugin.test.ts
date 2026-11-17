@@ -265,6 +265,59 @@ describe('plugin at a berth', () => {
   })
 })
 
+describe('plugin in a silent region', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  // A region around own ship at 50 N 1 E; the boat of the berth tests heads
+  // for us at 5 m/s while we motor at 2 m/s.
+  const region = {
+    name: 'Home port',
+    feature: {
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [0.99, 49.99],
+            [1.01, 49.99],
+            [1.01, 50.01],
+            [0.99, 50.01],
+            [0.99, 49.99]
+          ]
+        ]
+      }
+    }
+  }
+  const run = async (silentRegions: string[]) => {
+    const { app, notifications } = fakeApp(true)
+    Object.assign(app, {
+      resourcesApi: { getResource: vi.fn(() => Promise.resolve(region)) }
+    })
+    vi.mocked(app.getSelfPath).mockImplementation(() => nav(50, 0, 2))
+    vi.mocked(app.getPath).mockImplementation((path: string): unknown =>
+      path === 'vessels'
+        ? { [OTHER]: { navigation: nav(50 + 1400 / 1852 / 60, 180, 5) } }
+        : undefined
+    )
+    const plugin = createPlugin(app)
+    plugin.start({ silentRegions }, () => undefined)
+    await vi.advanceTimersByTimeAsync(2000)
+    await plugin.stop()
+    return { raise: notifications.raise, status: vi.mocked(app.setPluginStatus) }
+  }
+
+  it('raises nothing while we are inside, even under way', async () => {
+    const { raise, status } = await run(['home'])
+    expect(raise).not.toHaveBeenCalled()
+    expect(status).toHaveBeenLastCalledWith('No alarms inside Home port')
+  })
+
+  it('alarms as usual with no region chosen', async () => {
+    const { raise } = await run([])
+    expect(raise).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: 'alarm' }))
+  })
+})
+
 describe('plugin with sensor targets', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
@@ -284,6 +337,44 @@ describe('plugin with sensor targets', () => {
 })
 
 describe('config schema', () => {
+  const schemaWith = async (regions: Record<string, unknown>) => {
+    const { app } = fakeApp(true)
+    Object.assign(app, {
+      readPluginOptions: () => ({ configuration: { silentRegions: ['gone'] } }),
+      resourcesApi: { listResources: vi.fn(() => Promise.resolve(regions)) }
+    })
+    const schema = createPlugin(app).schema as () => Promise<{
+      properties: Record<string, { items?: unknown } | undefined>
+      required: string[]
+    }>
+    return schema()
+  }
+
+  it('offers the server regions, and keeps a chosen one that is gone', async () => {
+    const schema = await schemaWith({ h: { name: 'Home port' } })
+    expect(schema.properties.silentRegions?.items).toEqual({
+      type: 'string',
+      enum: ['h', 'gone'],
+      enumNames: ['Home port', 'gone (not found)']
+    })
+  })
+
+  it('leaves out the region choice when the server has no regions', async () => {
+    const { app } = fakeApp(true)
+    Object.assign(app, {
+      readPluginOptions: () => ({}),
+      resourcesApi: { listResources: vi.fn(() => Promise.resolve({})) }
+    })
+    const schema = await (
+      createPlugin(app).schema as () => Promise<{
+        properties: Record<string, unknown>
+        required: string[]
+      }>
+    )()
+    expect(schema.properties.silentRegions).toBeUndefined()
+    expect(schema.required).not.toContain('silentRegions')
+  })
+
   it('declares the same defaults the plugin applies at runtime', async () => {
     const { ConfigSchema, DEFAULTS } = await import('../src/config.js')
     // The admin UI receives the schema as plain JSON, so compare it in that form.

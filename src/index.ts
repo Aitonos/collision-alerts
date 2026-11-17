@@ -7,8 +7,11 @@ import { Evaluator, positionTime, toTrack, type VesselNode } from './evaluator.j
 import { ConfigSchema, DEFAULTS, type Config } from './config.js'
 import { PASSING_DISTANCE, PRESETS, type Zone } from './zones.js'
 import { targetNodes, type SensorTargetNode } from './targets.js'
+import { regionChoices, SilentRegions } from './regions.js'
 
 const PLUGIN_ID = 'collision-alerts'
+// Regions change only when someone edits them in a chart plotter.
+const REGION_REFRESH_MS = 60_000
 const NM = 1852
 const KNOT = 1852 / 3600
 
@@ -39,6 +42,7 @@ const WATCHING = 'Watching AIS, radar and other targets'
 
 export default function (app: ServerAPI): Plugin {
   let timer: ReturnType<typeof setInterval> | undefined
+  let regionTimer: ReturnType<typeof setInterval> | undefined
   let evaluator: Evaluator | undefined
   const closestApproach = new ClosestApproachPublisher((context, value) => {
     const delta: Delta = {
@@ -69,7 +73,28 @@ export default function (app: ServerAPI): Plugin {
     id: PLUGIN_ID,
     name: 'Collision Alerts',
     description: 'CPA/TCPA collision alerts for AIS, radar and other targets',
-    schema: () => ConfigSchema,
+    // The admin form lists the server's regions to choose from.
+    schema: async () => {
+      const saved = (app.readPluginOptions() as { configuration?: { silentRegions?: unknown } })
+        .configuration?.silentRegions
+      const chosen = Array.isArray(saved)
+        ? saved.filter((id): id is string => typeof id === 'string')
+        : []
+      const choices = await regionChoices(app, chosen)
+      const schema = JSON.parse(JSON.stringify(ConfigSchema)) as {
+        properties: { silentRegions?: { items: object } }
+        required?: string[]
+      }
+      // With no region to choose, the field would show an empty checkbox list.
+      if (choices === undefined) {
+        delete schema.properties.silentRegions
+        schema.required = schema.required?.filter((key) => key !== 'silentRegions')
+      } else if (schema.properties.silentRegions) {
+        schema.properties.silentRegions.items = { type: 'string', ...choices }
+      }
+      return schema
+    },
+    uiSchema: { silentRegions: { 'ui:widget': 'checkboxes' } },
 
     start(partial: object) {
       // The server does not apply schema defaults at runtime.
@@ -108,6 +133,14 @@ export default function (app: ServerAPI): Plugin {
       const ownMotion = new MotionCheck()
       const ownDrift = new DriftDetector()
       const readsState = config.whileMoored !== 'normal' || config.noAlarmsWhenAnchored
+      const silentRegions = new SilentRegions(app, config.silentRegions)
+      if (config.silentRegions.length > 0) {
+        const refresh = () => {
+          void silentRegions.refresh()
+        }
+        refresh()
+        regionTimer = setInterval(refresh, REGION_REFRESH_MS)
+      }
       let status: string | undefined
       const setStatus = (text: string) => {
         if (text !== status) {
@@ -141,18 +174,22 @@ export default function (app: ServerAPI): Plugin {
           const moored = config.whileMoored === 'harbour' && state === 'moored'
           // Only while we lie still: a state left stale by its source must
           // not silence a boat under way.
-          const quiet =
+          const quietState =
             own !== null &&
             own.sog === 0 &&
             ((config.whileMoored === 'silent' && state === 'moored') ||
               (config.noAlarmsWhenAnchored && state === 'anchored'))
+          const region = raw ? silentRegions.containing(raw.position) : undefined
+          const quiet = quietState || region !== undefined
           const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored, quiet)
           setStatus(
-            quiet
-              ? state === 'anchored'
-                ? 'No alarms while at anchor'
-                : 'No alarms while moored'
-              : WATCHING
+            region !== undefined
+              ? `No alarms inside ${region}`
+              : quietState
+                ? state === 'anchored'
+                  ? 'No alarms while at anchor'
+                  : 'No alarms while moored'
+                : WATCHING
           )
           if (config.publishClosestApproach) {
             closestApproach.publish(evaluations, own, now)
@@ -168,6 +205,8 @@ export default function (app: ServerAPI): Plugin {
     stop() {
       clearInterval(timer)
       timer = undefined
+      clearInterval(regionTimer)
+      regionTimer = undefined
       evaluator?.stop()
       evaluator = undefined
       // Sensor plugins keep their own alarms off while we announce, so the
