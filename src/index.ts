@@ -139,12 +139,16 @@ export default function (app: ServerAPI): Plugin {
             ? (app.getSelfPath('navigation.state') as { value?: unknown } | undefined)?.value
             : undefined
           const moored = config.whileMoored === 'harbour' && state === 'moored'
+          // Only while we lie still: a state left stale by its source must
+          // not silence a boat under way.
           const quiet =
-            (config.whileMoored === 'silent' && state === 'moored') ||
-            (config.noAlarmsWhenAnchored && state === 'anchored')
+            own !== null &&
+            own.sog === 0 &&
+            ((config.whileMoored === 'silent' && state === 'moored') ||
+              (config.noAlarmsWhenAnchored && state === 'anchored'))
           const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored, quiet)
           setStatus(
-            quiet && own !== null && own.sog === 0
+            quiet
               ? state === 'anchored'
                 ? 'No alarms while at anchor'
                 : 'No alarms while moored'

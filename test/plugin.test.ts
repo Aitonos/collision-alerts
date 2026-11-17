@@ -182,10 +182,14 @@ describe('plugin at a berth', () => {
 
   // We lie still; a boat 1400 m north heads straight for us at 5 m/s: CPA 0
   // in 280 s, a Coastal alarm and a Harbour warning.
-  const raised = async (state: string, config: object = { whileMoored: 'harbour' }) => {
+  const raised = async (
+    state: string,
+    config: object = { whileMoored: 'harbour' },
+    ownSpeed = 0
+  ) => {
     const { app, notifications } = fakeApp(true)
     vi.mocked(app.getSelfPath).mockImplementation((path: string) =>
-      path === 'navigation.state' ? { value: state } : nav(50, 0, 0)
+      path === 'navigation.state' ? { value: state } : nav(50, 0, ownSpeed)
     )
     vi.mocked(app.getPath).mockImplementation((path: string): unknown =>
       path === 'vessels'
@@ -242,6 +246,12 @@ describe('plugin at a berth', () => {
 
   it('raises nothing while moored when told so', async () => {
     expect(await raised('moored', { whileMoored: 'silent' })).not.toHaveBeenCalled()
+  })
+
+  it('still alarms while moored and silent if we are moving', async () => {
+    expect(await raised('moored', { whileMoored: 'silent' }, 2)).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ state: 'alarm' })
+    )
   })
 
   it('raises nothing at anchor when told so', async () => {
