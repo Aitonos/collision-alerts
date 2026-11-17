@@ -9,6 +9,8 @@ import { PASSING_DISTANCE, PRESETS, type Zone } from './zones.js'
 import { targetNodes, type SensorTargetNode } from './targets.js'
 
 const PLUGIN_ID = 'collision-alerts'
+// 1 while alarms are paused, 0 otherwise; a PUT of 1 pauses, 0 resumes.
+const PAUSED_PATH = 'navigation.collisionAlerts.paused'
 const NM = 1852
 const KNOT = 1852 / 3600
 
@@ -39,6 +41,8 @@ const WATCHING = 'Watching AIS, radar and other targets'
 
 export default function (app: ServerAPI): Plugin {
   let timer: ReturnType<typeof setInterval> | undefined
+  // Epoch ms; kept across a restart of the plugin, not of the server.
+  let pausedUntil = 0
   let evaluator: Evaluator | undefined
   const closestApproach = new ClosestApproachPublisher((context, value) => {
     const delta: Delta = {
@@ -108,6 +112,32 @@ export default function (app: ServerAPI): Plugin {
       const ownMotion = new MotionCheck()
       const ownDrift = new DriftDetector()
       const readsState = config.whileMoored !== 'normal' || config.noAlarmsWhenAnchored
+      const publishPaused = (paused: boolean) => {
+        app.handleMessage(PLUGIN_ID, {
+          updates: [
+            {
+              values: [{ path: PAUSED_PATH as Path, value: paused ? 1 : 0 }],
+              meta: [
+                {
+                  path: PAUSED_PATH as Path,
+                  value: {
+                    description: `1 while collision alarms are paused; PUT 1 to pause ${config.pauseMinutes} min, 0 to resume`
+                  }
+                }
+              ]
+            }
+          ]
+        })
+      }
+      app.registerPutHandler('vessels.self', PAUSED_PATH, (_context, _path, value) => {
+        if (value !== 0 && value !== 1) {
+          return { state: 'COMPLETED', statusCode: 400, message: 'Send 1 to pause, 0 to resume' }
+        }
+        pausedUntil = value === 1 ? Date.now() + config.pauseMinutes * 60_000 : 0
+        publishPaused(value === 1)
+        return { state: 'COMPLETED', statusCode: 200 }
+      })
+      publishPaused(Date.now() < pausedUntil)
       let status: string | undefined
       const setStatus = (text: string) => {
         if (text !== status) {
@@ -141,18 +171,26 @@ export default function (app: ServerAPI): Plugin {
           const moored = config.whileMoored === 'harbour' && state === 'moored'
           // Only while we lie still: a state left stale by its source must
           // not silence a boat under way.
-          const quiet =
+          const quietState =
             own !== null &&
             own.sog === 0 &&
             ((config.whileMoored === 'silent' && state === 'moored') ||
               (config.noAlarmsWhenAnchored && state === 'anchored'))
+          if (pausedUntil !== 0 && now >= pausedUntil) {
+            pausedUntil = 0
+            publishPaused(false)
+          }
+          const paused = pausedUntil !== 0
+          const quiet = quietState || paused
           const evaluations = activeEvaluator.evaluate(own, vessels, app.selfId, now, moored, quiet)
           setStatus(
-            quiet
-              ? state === 'anchored'
-                ? 'No alarms while at anchor'
-                : 'No alarms while moored'
-              : WATCHING
+            paused
+              ? `Paused until ${new Date(pausedUntil).toTimeString().slice(0, 5)}`
+              : quietState
+                ? state === 'anchored'
+                  ? 'No alarms while at anchor'
+                  : 'No alarms while moored'
+                : WATCHING
           )
           if (config.publishClosestApproach) {
             closestApproach.publish(evaluations, own, now)

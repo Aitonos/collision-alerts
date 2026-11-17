@@ -31,6 +31,7 @@ function fakeApp(managed: boolean) {
     debug: vi.fn(),
     error: vi.fn(),
     setPluginStatus: vi.fn(),
+    registerPutHandler: vi.fn(),
     savePluginOptions: vi.fn(),
     emitPropertyValue: vi.fn(),
     handleMessage: vi.fn<HandleMessage>(),
@@ -75,7 +76,8 @@ describe('plugin', () => {
     plugin.start({ publishClosestApproach: false }, () => undefined)
     vi.advanceTimersByTime(2000)
     expect(notifications.raise).not.toHaveBeenCalled()
-    expect(sentValue(handleMessage, 0).path).toBe(
+    // The first delta publishes that alarms are not paused.
+    expect(sentValue(handleMessage, 1).path).toBe(
       `notifications.navigation.closestApproach.${OTHER}`
     )
     await plugin.stop()
@@ -262,6 +264,56 @@ describe('plugin at a berth', () => {
     expect(await raised('anchored', { whileMoored: 'silent' })).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ state: 'alarm' })
     )
+  })
+})
+
+describe('plugin paused', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  // The boat of the berth tests heads for us; we motor at 2 m/s.
+  const setup = () => {
+    const { app, notifications } = fakeApp(true)
+    vi.mocked(app.getSelfPath).mockImplementation(() => nav(50, 0, 2))
+    vi.mocked(app.getPath).mockImplementation((path: string): unknown =>
+      path === 'vessels'
+        ? { [OTHER]: { navigation: nav(50 + 1400 / 1852 / 60, 180, 5) } }
+        : undefined
+    )
+    const plugin = createPlugin(app)
+    plugin.start({}, () => undefined)
+    const [[context, path, handler]] = vi.mocked(app.registerPutHandler).mock.calls
+    const put = (value: unknown) => handler(context, path, value, () => undefined)
+    return { app, notifications, plugin, path, put }
+  }
+
+  it('raises nothing for the pause time after a PUT of 1, then alarms again', async () => {
+    const { app, notifications, plugin, path, put } = setup()
+    expect(path).toBe('navigation.collisionAlerts.paused')
+    expect(put(1)).toEqual({ state: 'COMPLETED', statusCode: 200 })
+    vi.advanceTimersByTime(29 * 60_000)
+    expect(notifications.raise).not.toHaveBeenCalled()
+    expect(vi.mocked(app.setPluginStatus).mock.lastCall?.[0]).toMatch(/^Paused until \d\d:\d\d$/)
+    vi.advanceTimersByTime(2 * 60_000)
+    expect(notifications.raise).toHaveBeenCalledOnce()
+    await plugin.stop()
+  })
+
+  it('resumes on a PUT of 0', async () => {
+    const { notifications, plugin, put } = setup()
+    put(1)
+    vi.advanceTimersByTime(2000)
+    put(0)
+    vi.advanceTimersByTime(2000)
+    expect(notifications.raise).toHaveBeenCalledOnce()
+    await plugin.stop()
+  })
+
+  it('refuses anything but 1 or 0', async () => {
+    const { plugin, put } = setup()
+    expect(put(true)).toMatchObject({ statusCode: 400 })
+    expect(put('2')).toMatchObject({ statusCode: 400 })
+    await plugin.stop()
   })
 })
 

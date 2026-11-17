@@ -56,6 +56,13 @@ export const ConfigSchema = Type.Object({
       'Stopped and anchored: no alarms, and raised ones clear. A boat dragging onto you raises nothing either.',
     default: false
   }),
+  pauseMinutes: Type.Number({
+    title: 'Pause for (min)',
+    description:
+      'A PUT of 1 to navigation.collisionAlerts.paused (a button in KIP, a voice command) stops all alarms for this long; 0 resumes.',
+    minimum: 1,
+    default: 30
+  }),
   maxAlarms: Type.Integer({
     title: 'Alarm for at most this many targets at once',
     description:
@@ -94,6 +101,7 @@ export const DEFAULTS: Config = {
   slowSpeed: 3,
   whileMoored: 'normal',
   noAlarmsWhenAnchored: false,
+  pauseMinutes: 30,
   maxAlarms: 3,
   maxRange: 12,
   maxAge: 360,
