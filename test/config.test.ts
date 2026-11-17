@@ -43,4 +43,15 @@ describe('config schema', () => {
       expect(fields).toContain('maxAlarms')
     }
   })
+
+  it('reaches no object twice, as the plugin CI requires', () => {
+    const seen = new Set<object>()
+    const walk = (node: unknown) => {
+      if (node === null || typeof node !== 'object') return
+      expect(seen.has(node)).toBe(false)
+      seen.add(node)
+      Object.values(node).forEach(walk)
+    }
+    walk(formSchema())
+  })
 })

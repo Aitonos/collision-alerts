@@ -141,7 +141,9 @@ export function limitsFor(
  * right below it, with their defaults filled in when switching. The form
  * appends a `dependencies` branch's fields after the others and rejects a
  * `ui:order` naming a field it does not show, so every branch carries all the
- * other fields too, in schema order. Hidden fields keep their values.
+ * other fields too, in schema order, each branch its own copy: the server
+ * stores the schema as JSON, and the plugin CI rejects an object reachable
+ * twice. Hidden fields keep their values.
  */
 export function formSchema(): object {
   const schema = JSON.parse(JSON.stringify(ConfigSchema)) as {
@@ -160,7 +162,7 @@ export function formSchema(): object {
           properties: {
             preset: { enum: [preset] },
             ...Object.fromEntries(keys.map((key) => [key, properties[key]])),
-            ...Object.fromEntries(others)
+            ...structuredClone(Object.fromEntries(others))
           }
         }))
       }
