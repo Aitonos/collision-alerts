@@ -102,9 +102,9 @@ export const ConfigSchema = Type.Object({
     default: 'normal'
   }),
   silentRegions: Type.Array(Type.String(), {
-    title: '• When you are inside any of these marinas',
+    title: '• When you are inside any of these regions',
     description:
-      '*(No alarms inside them, even when you or other boats are moving. Draw each one as a region in Freeboard, covering the marina entrance too.)*',
+      '*(Regions are areas you draw on the chart in Freeboard. Draw one around each marina you use, entrance included: while you are inside it, you get no notifications, neither from your own movement nor from boats heading towards you.)*',
     uniqueItems: true,
     default: []
   }),

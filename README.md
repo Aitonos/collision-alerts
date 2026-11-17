@@ -28,7 +28,7 @@ A boat that does not cross ahead of you, or any boat while you are stopped, rais
 
 - **When you are moored at your berth**: _Alarms as usual_, _Only for boats coming straight at you_ (every boat gets the harbour distances) or _No alarms_. Read from your boat's navigation state, set by signalk-autostate.
 - **When you are at anchor**: _Alarms as usual_ or _No alarms_. A boat dragging onto you raises nothing either: turn it on only if something else watches your anchorage.
-- **When you are inside any of these marinas**: no alarms, even when you or other boats are moving. Draw each marina as a region in Freeboard (or any app that saves regions), covering its entrance too; it shows up here to tick. Inside it, under way or not, no alarms.
+- **When you are inside any of these regions**: regions are areas you draw on the chart in Freeboard (or any app that saves regions). Draw one around each marina you use, entrance included, and tick it here: while you are inside it, you get no notifications, neither from your own movement nor from boats heading towards you.
 - **Pause button.** A KIP switch on `navigation.collisionAlerts.paused` (numeric): 1 stops all alarms for the minutes set here, 30 by default; 0 resumes. Alarms come back by themselves.
 
 The plugin status says when and why it is quiet.
