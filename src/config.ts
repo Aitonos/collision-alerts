@@ -102,9 +102,9 @@ export const ConfigSchema = Type.Object({
     default: 'normal'
   }),
   silentRegions: Type.Array(Type.String(), {
-    title: '• When you are inside any of these harbours',
+    title: '• When you are inside any of these marinas',
     description:
-      '*(No alarms inside them, even when you or other boats are moving. Draw each one as a region in Freeboard, covering the harbour entrance too.)*',
+      '*(No alarms inside them, even when you or other boats are moving. Draw each one as a region in Freeboard, covering the marina entrance too.)*',
     uniqueItems: true,
     default: []
   }),
@@ -261,7 +261,7 @@ const HEADINGS: Record<string, { title: string; description: string; before?: ke
   quietTimes: {
     title: 'When should alarms be quiet?',
     description:
-      '(Alarms are always on unless you choose otherwise here. To silence a harbour, draw it as a region in Freeboard, covering its entrance too: it will then appear here.)',
+      '(Alarms are always on unless you choose otherwise here. To silence a marina, draw it as a region in Freeboard, covering its entrance too: it will then appear here.)',
     before: 'whileMoored'
   },
   advanced: {
