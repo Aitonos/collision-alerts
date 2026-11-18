@@ -37,7 +37,7 @@ The plugin status says when and why it is quiet.
 
 **Integration with other apps**: whether each boat's closest approach is sent to chart apps such as Freeboard.
 
-Settings saved by version 0.8 or earlier are converted once when the plugin starts: Custom becomes _Along the coast_ with its numbers.
+Settings saved by version 0.8 or earlier are converted once when the plugin starts: Custom becomes _Along the coast_ with its numbers, its lowest level zone giving the warning and its highest the alarm. A Custom with more than two zones loses the ones in between; the server log lists them.
 
 ## What to expect
 

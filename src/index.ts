@@ -88,7 +88,12 @@ export default function (app: ServerAPI): Plugin {
     start(partial: object) {
       // Settings saved by 0.8 or earlier, saved once in the current form so
       // the admin form shows them.
-      const migrated = migrate(partial)
+      const migrated = migrate(partial, (dropped) => {
+        const list = dropped.map((z) => `${z.level} ${z.cpa} m in ${z.tcpa} s`).join(', ')
+        app.error(
+          `Custom sensitivity converted to Along the coast with its lowest and highest zones; dropped: ${list}`
+        )
+      })
       if (migrated) {
         app.savePluginOptions(migrated, (err) => {
           if (err) app.error(`Could not save the converted settings: ${err.message}`)

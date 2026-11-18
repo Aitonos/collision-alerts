@@ -201,9 +201,10 @@ interface OldSettings {
 /**
  * The saved settings in the current form, or undefined if they already are.
  * A Custom sensitivity becomes Along the coast with its numbers: the lowest
- * level zone gives the warning, the highest the alarm.
+ * level zone gives the warning, the highest the alarm. Zones in between have
+ * no place in the new settings: they are dropped and passed to `onDropped`.
  */
-export function migrate(saved: object): object | undefined {
+export function migrate(saved: object, onDropped?: (zones: Zone[]) => void): object | undefined {
   const {
     customZones,
     customPassingDistance,
@@ -227,6 +228,7 @@ export function migrate(saved: object): object | undefined {
     )
     const warn = zones[0] ?? zone('coastal', 'warn')
     const alarm = zones[zones.length - 1] ?? zone('coastal', 'alarm')
+    if (zones.length > 2) onDropped?.(zones.slice(1, -1))
     result.preset = 'coastal'
     result.coastal = {
       warnDistance: warn.cpa,

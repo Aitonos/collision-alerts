@@ -63,6 +63,24 @@ describe('settings saved by 0.8', () => {
     })
   })
 
+  it('reports the zones in between a Custom list of three or more', () => {
+    const dropped: unknown[] = []
+    const out = migrate(
+      {
+        preset: 'custom',
+        customZones: [
+          { level: 'emergency', cpa: 10, tcpa: 30 },
+          { level: 'warn', cpa: 50, tcpa: 120 },
+          { level: 'alarm', cpa: 25, tcpa: 60 }
+        ]
+      },
+      (zones) => dropped.push(...zones)
+    ) as { coastal: { warnDistance: number; alarmDistance: number } }
+    expect(out.coastal.warnDistance).toBe(50)
+    expect(out.coastal.alarmDistance).toBe(10)
+    expect(dropped).toEqual([{ level: 'alarm', cpa: 25, tcpa: 60 }])
+  })
+
   it('drops the zones of another sensitivity and converts the switches and the data age', () => {
     expect(
       migrate({
